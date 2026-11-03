@@ -111,6 +111,7 @@ class PublicJobController extends Controller
      */
     public function apply(Request $request, string $jobCode): RedirectResponse
     {
+        
         $job = JobOpening::where('job_code', $jobCode)->firstOrFail();
 
         // Ensure vacancy is not expired or closed

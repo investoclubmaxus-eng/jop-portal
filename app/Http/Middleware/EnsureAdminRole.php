@@ -15,6 +15,9 @@ class EnsureAdminRole
     public function handle(Request $request, Closure $next, ...$roles): Response
     {
         if (!Auth::check()) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json(['message' => 'Unauthenticated.'], 401);
+            }
             return redirect()->route('admin.login');
         }
 
@@ -30,6 +33,11 @@ class EnsureAdminRole
         }
 
         if (!in_array($user->role, $roles, true)) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'message' => 'Unauthorized access: You do not have permission to view or manage this section.',
+                ], 403);
+            }
             abort(403, 'Unauthorized access: You do not have permission to view or manage this section.');
         }
 

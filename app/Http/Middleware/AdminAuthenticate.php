@@ -15,6 +15,12 @@ class AdminAuthenticate
     public function handle(Request $request, Closure $next): Response
     {
         if (!Auth::check()) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'message' => 'Unauthenticated. Please log in to access the administrator portal.',
+                ], 401);
+            }
+
             return redirect()->guest(route('admin.login'))
                 ->with('error', 'Please log in to access the admin portal.');
         }
@@ -26,6 +32,12 @@ class AdminAuthenticate
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
+
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'message' => 'Your administrator account has been deactivated. Please contact the portal administrator.',
+                ], 403);
+            }
 
             return redirect()->route('admin.login')
                 ->with('error', 'Your administrator account has been deactivated. Please contact the portal administrator.');

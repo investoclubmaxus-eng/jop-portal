@@ -10,13 +10,13 @@ class ExampleTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * Test root route loads public careers home.
+     * Test root route loads SPA container for React.
      */
     public function test_root_route_returns_successful_response(): void
     {
         $response = $this->get('/');
 
         $response->assertStatus(200);
-        $response->assertSee('Find Your Next Career Move');
+        $response->assertSee('id="app"', false);
     }
 }

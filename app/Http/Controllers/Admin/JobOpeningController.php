@@ -99,6 +99,7 @@ class JobOpeningController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        
         $validated = $this->validateJobOpening($request);
 
         // Normalize skills from comma separated string or array

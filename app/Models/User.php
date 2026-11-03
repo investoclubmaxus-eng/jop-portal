@@ -8,15 +8,17 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Laravel\Sanctum\HasApiTokens; 
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, SoftDeletes;
+    use HasFactory, HasApiTokens, Notifiable, SoftDeletes;
 
     public const ROLE_SUPER_ADMIN = 'super_admin';
     public const ROLE_ADMIN = 'admin';
     public const ROLE_RECRUITER = 'recruiter';
-    public const ROLE_HR = 'hr_manager';
+    public const ROLE_HR = 'hr';
+    public const ROLE_HR_MANAGER = 'hr_manager';
 
     public const STATUS_ACTIVE = 'active';
     public const STATUS_INACTIVE = 'inactive';
@@ -31,6 +33,7 @@ class User extends Authenticatable
         'role',
         'status',
         'last_login_at',
+        
     ];
 
     /**
@@ -113,6 +116,10 @@ class User extends Authenticatable
                 'view_dashboard',
                 'manage_applications',
             ],
+            self::ROLE_HR_MANAGER => [
+                'view_dashboard',
+                'manage_applications',
+            ],
         ];
 
         $allowed = $permissionsByRole[$this->role] ?? [];
@@ -154,7 +161,7 @@ class User extends Authenticatable
             self::ROLE_SUPER_ADMIN => 'Super Admin',
             self::ROLE_ADMIN => 'Admin',
             self::ROLE_RECRUITER => 'Recruiter',
-            self::ROLE_HR => 'HR Manager',
+            self::ROLE_HR, self::ROLE_HR_MANAGER => 'HR',
             default => ucfirst(str_replace('_', ' ', $this->role ?? 'Admin')),
         };
     }

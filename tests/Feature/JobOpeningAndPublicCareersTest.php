@@ -33,7 +33,7 @@ class JobOpeningAndPublicCareersTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
-    | Module 3: Job Opening Management Module Tests
+    | Module 3: Job Opening Management Module Tests (API)
     |--------------------------------------------------------------------------
     */
 
@@ -51,17 +51,19 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'created_by' => $this->admin->id,
         ]);
 
-        $response = $this->get('/admin/jobs');
+        $response = $this->getJson('/api/admin/jobs');
         $response->assertStatus(200);
-        $response->assertSee('Backend Architect');
-        $response->assertSee('JOB-2026-001');
+        $response->assertJsonFragment([
+            'job_title' => 'Backend Architect',
+            'job_code' => 'JOB-2026-001',
+        ]);
     }
 
     public function test_admin_can_create_job_opening_as_draft_and_published(): void
     {
         $this->actingAs($this->admin);
 
-        $response = $this->post('/admin/jobs', [
+        $response = $this->postJson('/api/admin/jobs', [
             'job_title' => 'Frontend React Engineer',
             'job_code' => 'JOB-2026-099',
             'department' => 'Frontend',
@@ -80,7 +82,7 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'action_type' => 'publish',
         ]);
 
-        $response->assertSessionHas('success');
+        $response->assertStatus(201);
         $this->assertDatabaseHas('job_openings', [
             'job_code' => 'JOB-2026-099',
             'job_title' => 'Frontend React Engineer',
@@ -97,22 +99,26 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'job_code' => 'JOB-2026-002',
             'job_title' => 'Old Title',
             'department' => 'QA',
+            'designation' => 'QA Tester',
             'vacancies' => 1,
+            'employment_type' => 'Full-time',
             'status' => JobOpening::STATUS_DRAFT,
             'job_description' => 'Test software',
             'created_by' => $this->admin->id,
         ]);
 
-        $response = $this->put("/admin/jobs/{$job->id}", [
+        $response = $this->putJson("/api/admin/jobs/{$job->id}", [
             'job_title' => 'Senior QA Automation Engineer',
             'job_code' => 'JOB-2026-002',
             'department' => 'Quality Assurance',
+            'designation' => 'QA Lead',
+            'employment_type' => 'Full-time',
             'vacancies' => 2,
             'job_description' => 'Updated automated testing description.',
             'status' => JobOpening::STATUS_PUBLISHED,
         ]);
 
-        $response->assertSessionHas('success');
+        $response->assertStatus(200);
         $job->refresh();
         $this->assertEquals('Senior QA Automation Engineer', $job->job_title);
         $this->assertEquals(2, $job->vacancies);
@@ -144,11 +150,13 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'submitted_at' => now(),
         ]);
 
-        $response = $this->get("/admin/jobs/{$job->id}");
+        $response = $this->getJson("/api/admin/jobs/{$job->id}");
         $response->assertStatus(200);
-        $response->assertSee('DevOps Specialist');
-        $response->assertSee('Alexander Hamilton');
-        $response->assertSee('APP-TEST-999');
+        $response->assertJsonFragment([
+            'job_title' => 'DevOps Specialist',
+            'full_name' => 'Alexander Hamilton',
+            'application_code' => 'APP-TEST-999',
+        ]);
     }
 
     public function test_admin_can_change_status_activate_expire_unpublish(): void
@@ -165,18 +173,18 @@ class JobOpeningAndPublicCareersTest extends TestCase
         ]);
 
         // Unpublish (move to draft)
-        $response = $this->patch("/admin/jobs/{$job->id}/status", [
+        $response = $this->patchJson("/api/admin/jobs/{$job->id}/status", [
             'status' => JobOpening::STATUS_DRAFT,
         ]);
-        $response->assertSessionHas('success');
+        $response->assertStatus(200);
         $job->refresh();
         $this->assertEquals(JobOpening::STATUS_DRAFT, $job->status);
 
         // Expire vacancy
-        $response2 = $this->patch("/admin/jobs/{$job->id}/status", [
+        $response2 = $this->patchJson("/api/admin/jobs/{$job->id}/status", [
             'status' => JobOpening::STATUS_EXPIRED,
         ]);
-        $response2->assertSessionHas('success');
+        $response2->assertStatus(200);
         $job->refresh();
         $this->assertEquals(JobOpening::STATUS_EXPIRED, $job->status);
     }
@@ -194,15 +202,15 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'created_by' => $this->admin->id,
         ]);
 
-        $response = $this->delete("/admin/jobs/{$job->id}");
-        $response->assertSessionHas('success');
+        $response = $this->deleteJson("/api/admin/jobs/{$job->id}");
+        $response->assertStatus(200);
 
         $this->assertSoftDeleted('job_openings', ['id' => $job->id]);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Module 4: Public Job Listing Module Tests
+    | Module 4: Public Job Listing Module Tests (API)
     |--------------------------------------------------------------------------
     */
 
@@ -249,17 +257,18 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'job_description' => 'Draft role',
         ]);
 
-        $response = $this->get('/jobs');
+        $response = $this->getJson('/api/jobs');
         $response->assertStatus(200);
 
+        $titles = collect($response->json('jobs'))->pluck('job_title')->all();
+
         // Visible
-        $response->assertSee('Active Python Developer');
-        $response->assertSee('JOB-PUB-001');
+        $this->assertContains('Active Python Developer', $titles);
 
         // Automatically hidden
-        $response->assertDontSee('Expired Sales Lead');
-        $response->assertDontSee('Past Deadline Marketing Manager');
-        $response->assertDontSee('Secret Unannounced Project');
+        $this->assertNotContains('Expired Sales Lead', $titles);
+        $this->assertNotContains('Past Deadline Marketing Manager', $titles);
+        $this->assertNotContains('Secret Unannounced Project', $titles);
     }
 
     public function test_candidate_can_view_job_details(): void
@@ -279,12 +288,15 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'required_skills' => ['AWS', 'Zero Trust', 'SOC2', 'Penetration Testing'],
         ]);
 
-        $response = $this->get("/jobs/{$job->job_code}");
+        $response = $this->getJson("/api/jobs/{$job->job_code}");
         $response->assertStatus(200);
-        $response->assertSee('Cloud Security Architect');
-        $response->assertSee('CISSP certification');
-        $response->assertSee('Zero Trust');
-        $response->assertSee('Apply for this Job');
+        $response->assertJson([
+            'job' => [
+                'job_code' => 'JOB-PUB-100',
+                'job_title' => 'Cloud Security Architect',
+                'department' => 'Cybersecurity',
+            ],
+        ]);
     }
 
     public function test_candidate_can_apply_for_job_with_resume_upload(): void
@@ -302,7 +314,7 @@ class JobOpeningAndPublicCareersTest extends TestCase
 
         $resumeFile = UploadedFile::fake()->create('resume_john_doe.pdf', 500, 'application/pdf');
 
-        $response = $this->post("/jobs/{$job->job_code}/apply", [
+        $response = $this->postJson("/api/jobs/{$job->job_code}/apply", [
             'first_name' => 'John',
             'last_name' => 'Doe',
             'email' => 'johndoe@example.com',
@@ -315,7 +327,11 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'resume' => $resumeFile,
         ]);
 
-        $response->assertSessionHas('application_success');
+        $response->assertStatus(201);
+        $response->assertJson([
+            'success' => true,
+            'candidate_name' => 'John Doe',
+        ]);
 
         $this->assertDatabaseHas('job_applications', [
             'job_opening_id' => $job->id,
@@ -342,39 +358,18 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'job_description' => 'No longer open.',
         ]);
 
-        $response = $this->post("/jobs/{$expiredJob->job_code}/apply", [
+        $response = $this->postJson("/api/jobs/{$expiredJob->job_code}/apply", [
             'first_name' => 'Late',
             'last_name' => 'Applicant',
             'email' => 'late@example.com',
             'phone' => '123456789',
         ]);
 
-        $response->assertSessionHas('error');
+        $response->assertStatus(422);
         $this->assertDatabaseMissing('job_applications', [
             'job_opening_id' => $expiredJob->id,
             'email' => 'late@example.com',
         ]);
-    }
-
-    public function test_direct_apply_url_renders_dedicated_form_with_campaign_source(): void
-    {
-        $job = JobOpening::create([
-            'job_code' => 'JOB-LINKEDIN-001',
-            'job_title' => 'Senior Growth Marketer',
-            'department' => 'Growth',
-            'vacancies' => 1,
-            'status' => JobOpening::STATUS_PUBLISHED,
-            'application_deadline' => Carbon::now()->addDays(15),
-            'job_description' => 'Drive candidate acquisition.',
-        ]);
-
-        $response = $this->get("/jobs/{$job->job_code}/apply?source=linkedin");
-
-        $response->assertStatus(200);
-        $response->assertSee('Candidate Application Form');
-        $response->assertSee('Channel: Linkedin');
-        $response->assertSee('Senior Growth Marketer');
-        $response->assertSee('name="source" value="linkedin"', false);
     }
 
     public function test_candidate_applying_via_promotion_link_records_source_in_database(): void
@@ -389,7 +384,7 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'job_description' => 'Database high availability.',
         ]);
 
-        $response = $this->post("/jobs/{$job->job_code}/apply", [
+        $response = $this->postJson("/api/jobs/{$job->job_code}/apply", [
             'first_name' => 'Amit',
             'last_name' => 'Sharma',
             'email' => 'amit.sharma@example.com',
@@ -400,7 +395,11 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'total_experience_years' => 6.0,
         ]);
 
-        $response->assertSessionHas('application_success');
+        $response->assertStatus(201);
+        $response->assertJson([
+            'success' => true,
+            'source' => 'Naukri',
+        ]);
 
         $this->assertDatabaseHas('job_applications', [
             'job_opening_id' => $job->id,
@@ -424,16 +423,18 @@ class JobOpeningAndPublicCareersTest extends TestCase
             'created_by' => $this->admin->id,
         ]);
 
-        $response = $this->get("/admin/jobs/{$job->id}");
+        $response = $this->getJson("/api/admin/jobs/{$job->id}");
 
         $response->assertStatus(200);
-        $response->assertSee('Job Board Promotion URLs');
-        $response->assertSee('LinkedIn Post Link (Direct Apply)');
-        $response->assertSee('Naukri.com Post Link');
-        $response->assertSee('Indeed Post Link');
-        $response->assertSee('WhatsApp');
-        $response->assertSee('source=linkedin');
-        $response->assertSee('source=naukri');
-        $response->assertSee('source=indeed');
+        $response->assertJsonStructure([
+            'job' => ['job_code', 'job_title'],
+            'promotion_urls' => ['direct_job', 'direct_apply', 'linkedin', 'naukri', 'indeed', 'whatsapp'],
+        ]);
+
+        $urls = $response->json('promotion_urls');
+        $this->assertStringContainsString('source=linkedin', $urls['linkedin']);
+        $this->assertStringContainsString('source=naukri', $urls['naukri']);
+        $this->assertStringContainsString('source=indeed', $urls['indeed']);
+        $this->assertStringContainsString('source=whatsapp', $urls['whatsapp']);
     }
 }

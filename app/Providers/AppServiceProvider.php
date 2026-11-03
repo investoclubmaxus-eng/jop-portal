@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Auth\Notifications\ResetPassword;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -19,6 +20,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // 🔑 Override the default password reset URL to point to your frontend client
+        ResetPassword::createUrlUsing(function ($notifiable, string $token) {
+            $frontendUrl = "http://localhost:3000/admin/reset-password"; // Change to your frontend URL
+            
+            return "{$frontendUrl}?token={$token}&email=" . urlencode($notifiable->getEmailForPasswordReset());
+        });
     }
 }

@@ -38,22 +38,29 @@ class AdminAuthAndDashboardTest extends TestCase
         ]);
     }
 
-    public function test_guest_is_redirected_from_dashboard_to_login(): void
+    public function test_guest_cannot_access_dashboard_api(): void
     {
-        $response = $this->get('/admin/dashboard');
-        $response->assertRedirect('/admin/login');
+        $response = $this->getJson('/api/admin/dashboard');
+        $response->assertStatus(401);
     }
 
     public function test_active_admin_can_login_and_records_last_login(): void
     {
         $this->assertNull($this->superAdmin->last_login_at);
 
-        $response = $this->post('/admin/login', [
+        $response = $this->postJson('/api/admin/login', [
             'email' => 'superadmin@example.com',
             'password' => 'password123',
         ]);
 
-        $response->assertRedirect('/admin/dashboard');
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'user' => [
+                'email' => 'superadmin@example.com',
+            ],
+        ]);
+
         $this->assertAuthenticatedAs($this->superAdmin);
 
         $this->superAdmin->refresh();
@@ -70,22 +77,23 @@ class AdminAuthAndDashboardTest extends TestCase
             'status' => User::STATUS_INACTIVE,
         ]);
 
-        $response = $this->from('/admin/login')->post('/admin/login', [
+        $response = $this->postJson('/api/admin/login', [
             'email' => 'deactivated@example.com',
             'password' => 'password123',
         ]);
 
-        $response->assertRedirect('/admin/login');
+        $response->assertStatus(403);
         $this->assertGuest();
-        $response->assertSessionHasErrors('email');
+        $response->assertJsonValidationErrors('email');
     }
 
     public function test_admin_can_logout(): void
     {
         $this->actingAs($this->superAdmin);
 
-        $response = $this->post('/admin/logout');
-        $response->assertRedirect('/admin/login');
+        $response = $this->postJson('/api/admin/logout');
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
         $this->assertGuest();
     }
 
@@ -93,16 +101,22 @@ class AdminAuthAndDashboardTest extends TestCase
     {
         $this->actingAs($this->superAdmin);
 
-        $response = $this->get('/admin/profile');
+        $response = $this->getJson('/api/admin/me');
         $response->assertStatus(200);
-        $response->assertSee('Profile & Account Security');
-
-        $updateResponse = $this->put('/admin/profile', [
-            'name' => 'Updated Name',
-            'email' => 'updated@example.com',
+        $response->assertJson([
+            'authenticated' => true,
+            'user' => [
+                'email' => 'superadmin@example.com',
+            ],
         ]);
 
-        $updateResponse->assertSessionHas('success');
+        $updateResponse = $this->putJson('/api/admin/profile', [
+            'name' => 'Updated Name',
+            'email' => 'updated@example.com',
+            'phone' => '1234567890',
+        ]);
+
+        $updateResponse->assertStatus(200);
         $this->assertDatabaseHas('users', [
             'id' => $this->superAdmin->id,
             'name' => 'Updated Name',
@@ -114,13 +128,13 @@ class AdminAuthAndDashboardTest extends TestCase
     {
         $this->actingAs($this->superAdmin);
 
-        $response = $this->put('/admin/profile/password', [
+        $response = $this->putJson('/api/admin/profile/password', [
             'current_password' => 'password123',
             'password' => 'newpassword123',
             'password_confirmation' => 'newpassword123',
         ]);
 
-        $response->assertSessionHas('success');
+        $response->assertStatus(200);
         $this->superAdmin->refresh();
         $this->assertTrue(Hash::check('newpassword123', $this->superAdmin->password));
     }
@@ -129,7 +143,7 @@ class AdminAuthAndDashboardTest extends TestCase
     {
         $this->actingAs($this->superAdmin);
 
-        $response = $this->post('/admin/users', [
+        $response = $this->postJson('/api/admin/users', [
             'name' => 'New Recruiter Staff',
             'email' => 'newrecruiter@example.com',
             'role' => User::ROLE_RECRUITER,
@@ -138,7 +152,7 @@ class AdminAuthAndDashboardTest extends TestCase
             'password_confirmation' => 'securepass123',
         ]);
 
-        $response->assertRedirect('/admin/users');
+        $response->assertStatus(201);
         $this->assertDatabaseHas('users', [
             'email' => 'newrecruiter@example.com',
             'role' => User::ROLE_RECRUITER,
@@ -158,8 +172,8 @@ class AdminAuthAndDashboardTest extends TestCase
             'status' => User::STATUS_ACTIVE,
         ]);
 
-        $response = $this->patch("/admin/users/{$targetUser->id}/toggle-status");
-        $response->assertSessionHas('success');
+        $response = $this->patchJson("/api/admin/users/{$targetUser->id}/toggle-status");
+        $response->assertStatus(200);
 
         $targetUser->refresh();
         $this->assertEquals(User::STATUS_INACTIVE, $targetUser->status);
@@ -169,11 +183,11 @@ class AdminAuthAndDashboardTest extends TestCase
     {
         $this->actingAs($this->superAdmin);
 
-        $toggleResponse = $this->patch("/admin/users/{$this->superAdmin->id}/toggle-status");
-        $toggleResponse->assertSessionHas('error');
+        $toggleResponse = $this->patchJson("/api/admin/users/{$this->superAdmin->id}/toggle-status");
+        $toggleResponse->assertStatus(422);
 
-        $deleteResponse = $this->delete("/admin/users/{$this->superAdmin->id}");
-        $deleteResponse->assertSessionHas('error');
+        $deleteResponse = $this->deleteJson("/api/admin/users/{$this->superAdmin->id}");
+        $deleteResponse->assertStatus(422);
     }
 
     public function test_admin_user_can_be_soft_deleted_and_restored(): void
@@ -188,13 +202,13 @@ class AdminAuthAndDashboardTest extends TestCase
             'status' => User::STATUS_ACTIVE,
         ]);
 
-        $deleteResponse = $this->delete("/admin/users/{$targetUser->id}");
-        $deleteResponse->assertSessionHas('success');
+        $deleteResponse = $this->deleteJson("/api/admin/users/{$targetUser->id}");
+        $deleteResponse->assertStatus(200);
 
         $this->assertSoftDeleted('users', ['id' => $targetUser->id]);
 
-        $restoreResponse = $this->post("/admin/users/{$targetUser->id}/restore");
-        $restoreResponse->assertSessionHas('success');
+        $restoreResponse = $this->postJson("/api/admin/users/{$targetUser->id}/restore");
+        $restoreResponse->assertStatus(200);
 
         $this->assertNotSoftDeleted('users', ['id' => $targetUser->id]);
     }
@@ -269,28 +283,26 @@ class AdminAuthAndDashboardTest extends TestCase
             'created_at' => now()->subDays(2),
         ]);
 
-        $response = $this->get('/admin/dashboard');
+        $response = $this->getJson('/api/admin/dashboard');
 
         $response->assertStatus(200);
 
-        // Verify view data contains all required keys
-        $response->assertViewHas('totalJobOpenings', 2);
-        $response->assertViewHas('activeVacancies', 1);
-        $response->assertViewHas('expiredVacancies', 1);
-        $response->assertViewHas('totalApplications', 3);
-        $response->assertViewHas('applicationsToday', 1);
-        $response->assertViewHas('pendingApplications', 1);
-        $response->assertViewHas('shortlistedApplications', 1);
-        $response->assertViewHas('rejectedApplications', 1);
-        $response->assertViewHas('crmTransferredApplications', 1);
-        $response->assertViewHas('recentApplications');
-        $response->assertViewHas('vacancyWiseStats');
+        // Verify API JSON metrics contain all 10 required recruitment statistics
+        $response->assertJson([
+            'metrics' => [
+                'total_job_openings' => 2,
+                'active_vacancies' => 1,
+                'expired_vacancies' => 1,
+                'total_applications' => 3,
+                'applications_today' => 1,
+                'pending_applications' => 1,
+                'shortlisted_applications' => 1,
+                'rejected_applications' => 1,
+                'crm_transferred_applications' => 1,
+            ],
+        ]);
 
-        // Check text elements rendered on page
-        $response->assertSee('Recruitment Dashboard');
-        $response->assertSee('Software Engineer');
-        $response->assertSee('JOB-TEST-001');
-        $response->assertSee('Alice Smith');
-        $response->assertSee('Bob Jones');
+        $this->assertCount(3, $response->json('recent_applications'));
+        $this->assertNotEmpty($response->json('vacancy_wise_stats.data'));
     }
 }
